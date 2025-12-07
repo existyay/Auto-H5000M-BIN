@@ -5,6 +5,10 @@ on:
     - cron: '0 16 * * 0'  # 每周一北京时间 0:00
   workflow_dispatch:
 
+# 添加权限声明，允许创建 Release
+permissions:
+  contents: write
+
 env:
   REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-24.10
   REPO_BRANCH: mt798x-mt799x-6.6-mtwifi
