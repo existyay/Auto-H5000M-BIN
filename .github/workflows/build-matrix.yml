@@ -85,9 +85,51 @@ jobs:
         with:
           path: build_dir
           key: ${{ runner.os }}-builddir-${{ github.run_id }}
+
+      - name: 修复依赖和 AdGuardHome 编译问题
+        run: |
+          # 1. 移除有问题的包
+          rm -rf package/feeds/packages/exim 2>/dev/null || true
+          rm -rf package/feeds/packages/onionshare-cli 2>/dev/null || true
+          rm -rf package/feeds/packages/python-zope-event 2>/dev/null || true
+          rm -rf package/feeds/packages/python-zope-interface 2>/dev/null || true
+          # 2. ndisc6 优先用源码自带版本，移除 feed 中重复
+          rm -rf package/feeds/qmodem/ndisc6 2>/dev/null || true
+          # 3. 修复 kmod-mhi-wwan 依赖
+          QMODEM_MK="package/feeds/qmodem/qmodem/Makefile"
+          if [ -f "$QMODEM_MK" ]; then
+            sed -i 's/DEPENDS:=.*+kmod-mhi-wwan/# &/g' "$QMODEM_MK" || true
+            sed -i 's/+kmod-mhi-wwan/+PACKAGE_luci-app-qmodem_GENERIC_MHI_PCIe_DRIVER:kmod-mhi-wwan/g' "$QMODEM_MK" || true
+          fi
+          # 4. 移除有问题的 python 依赖
+          rm -rf package/feeds/packages/python-gevent 2>/dev/null || true
+          rm -rf package/feeds/packages/python-twisted 2>/dev/null || true
+          # 5. 修复 mt_hwifi 驱动依赖警告
+          MT_HWIFI_MK="package/mtk/drivers/mt_hwifi/Makefile"
+          if [ -f "$MT_HWIFI_MK" ]; then
+            sed -i 's/+kmod-mt_wifi_osal//g' "$MT_HWIFI_MK" || true
+          fi
+          # 6. 修复 AdGuardHome 安装冲突
+          AGH_LUCI_SCRIPT="package/luci-app-adguardhome/root/usr/share/AdGuardHome/links.sh"
+          if [ -f "$AGH_LUCI_SCRIPT" ]; then
+            sed -i 's|mv /usr/bin/AdGuardHome/AdGuardHome|rm -rf /usr/bin/AdGuardHome 2>/dev/null; mkdir -p /usr/bin/AdGuardHome; mv /tmp/AdGuardHomeupdate/AdGuardHome_linux_*/AdGuardHome|g' "$AGH_LUCI_SCRIPT" || true
+          fi
+          AGH_LUCI_INIT="package/luci-app-adguardhome/root/etc/init.d/AdGuardHome"
+          if [ -f "$AGH_LUCI_INIT" ]; then
+            sed -i '/^#!/a\
+            [ -f /usr/bin/AdGuardHome ] && rm -f /usr/bin/AdGuardHome && mkdir -p /usr/bin/AdGuardHome' "$AGH_LUCI_INIT" || true
+          fi
+          AGH_INIT="package/feeds/packages/adguardhome/files/etc/init.d/AdGuardHome"
+          if [ -f "$AGH_INIT" ]; then
+            sed -i '/^#!/a\
+            # 清理冲突的 /usr/bin/AdGuardHome 路径\
+            [ -e /usr/bin/AdGuardHome ] && rm -rf /usr/bin/AdGuardHome\
+            mkdir -p /usr/bin/AdGuardHome' "$AGH_INIT" || true
+          fi
+          rm -rf package/feeds/packages/adguardhome/files/usr/bin/AdGuardHome 2>/dev/null || true
       - name: Append custom packages config
         run: |
-          cat openwrt-extra-packages.config >> .config
+          cat h5000m.config >> .config
           make defconfig
       - name: Build firmware
         run: |
