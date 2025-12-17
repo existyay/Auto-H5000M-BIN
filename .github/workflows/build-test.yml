@@ -110,7 +110,7 @@ jobs:
           # 关键修复：重命名冲突目录
           if [ -d "package/mtk/applications/5g-modem" ]; then
             echo "移除冲突目录以避免编译错误..."
-            rm -rf "package/mtk/applications/5g-modem" 2>/dev/null || true"
+            rm -rf "package/mtk/applications/5g-modem" 2>/dev/null || true
           else
             echo "ℹ️ 未找到冲突目录，可能已被修复"
           fi
@@ -234,7 +234,8 @@ jobs:
             ${{ env.SOURCE_DIR }}/feeds
             ${{ env.SOURCE_DIR }}/staging_dir
             ${{ env.SOURCE_DIR }}/build_dir
-          key: ${{ steps.restore-cache.outputs.cache-primary-key }}
+          # 使用与恢复相同的 key（基于配置文件哈希），确保 key 始终存在
+          key: ${{ runner.os }}-immortalwrt-${{ hashFiles('h5000m.config') }}
 
       - name: 准备固件文件
         if: success()
