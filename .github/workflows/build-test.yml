@@ -8,7 +8,7 @@ on:
       enable_adguardhome:
         description: '启用 AdGuardHome'
         required: false
-        default: 'false'
+        default: 'true'
         type: boolean
       enable_homeproxy:
         description: '启用 HomeProxy'
@@ -18,7 +18,7 @@ on:
       enable_openclash:
         description: '启用 OpenClash'
         required: false
-        default: 'false'
+        default: 'true'
         type: boolean
       enable_mihomo:
         description: '启用 Mihomo'
@@ -43,7 +43,7 @@ on:
       enable_mosdns:
         description: '启用 MosDNS'
         required: false
-        default: 'false'
+        default: 'true'
         type: boolean
       enable_dockerman:
         description: '启用 DockerMan'
