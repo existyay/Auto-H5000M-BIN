@@ -86,31 +86,48 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
+          set -euxo pipefail
           echo "🧹 [准备阶段] 开始清理环境..."
-          df -h
-          
-          # 删除 Docker 镜像
+          df -h /
+
+          # 清理 runner 的诊断缓存（会增长并占满磁盘）
+          sudo rm -rf /home/runner/actions-runner/cached/_diag/* 2>/dev/null || true
+
+          # 删除 Docker 镜像/容器/缓存
           docker rmi $(docker images -q) 2>/dev/null || true
           docker system prune -f || true
           docker image prune -a -f || true
           docker volume prune -f || true
-          
+
           # 删除不需要的组件
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android \
             /opt/ghc /etc/mysql /etc/php /usr/local/share/boost /usr/share/swift \
             /opt/hostedtoolcache /usr/local/.ghcup /usr/local/graalvm /imagegeneration 2>/dev/null || true
-          
+
           # 卸载不需要的软件
           sudo -E apt-get -y purge azure-cli* docker* ghc* zulu* hhvm* llvm* firefox* \
             google* dotnet* aspnetcore* powershell* openjdk* adoptopenjdk* mysql* php* \
             mongodb* moby* snap* 2>/dev/null || true
-          
+
           # 清理缓存
           sudo apt-get clean && sudo apt-get autoclean && sudo rm -rf /var/lib/apt/lists/* 2>/dev/null || true
           sudo rm -rf /tmp/* /var/tmp/* ~/.cache/* /var/log/* 2>/dev/null || true
-          
+
+          echo "🔎 列出 /home/runner 下最大的目录（前 25）以便诊断："
+          sudo du -sh /home/runner/* 2>/dev/null | sort -rh | head -n 25 || true
+
+          # 如果可用空间过小则提前失败，避免运行时出现 no space 错误（单位：KB）
+          AVAIL_KB=$(df --output=avail / | tail -n1 | tr -d ' ')
+          echo "✅ 可用磁盘 (KB): $AVAIL_KB"
+          MIN_KB=$((6 * 1024 * 1024))
+          if [ "$AVAIL_KB" -lt "$MIN_KB" ]; then
+            echo "❌ 可用磁盘小于 6GB ($MIN_KB KB)，请清理 runner 或调整缓存策略。"
+            df -h /
+            exit 1
+          fi
+
           echo "✅ 环境清理完成"
-          df -h
+          df -h /
 
   # ============================================================================
   # Job 2: 下载源码和编译链 (20-30 分钟, 首次)
@@ -146,7 +163,6 @@ jobs:
             ~/.ccache
             ${{ env.SOURCE_DIR }}/staging_dir/host
             ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
-            ${{ env.SOURCE_DIR }}/staging_dir/target-*
           key: ${{ runner.os }}-toolchain-${{ env.REPO_BRANCH }}-v1
           restore-keys: |
             ${{ runner.os }}-toolchain-${{ env.REPO_BRANCH }}-
@@ -295,7 +311,6 @@ jobs:
             ${{ env.SOURCE_DIR }}/dl
             ${{ env.SOURCE_DIR }}/staging_dir/host
             ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
-            ${{ env.SOURCE_DIR }}/staging_dir/target-*
           key: ${{ runner.os }}-downloads-${{ env.REPO_BRANCH }}-${{ steps.cache-key.outputs.key }}
           restore-keys: |
             ${{ runner.os }}-downloads-${{ env.REPO_BRANCH }}-
@@ -319,7 +334,6 @@ jobs:
             ${{ env.SOURCE_DIR }}/dl
             ${{ env.SOURCE_DIR }}/staging_dir/host
             ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
-            ${{ env.SOURCE_DIR }}/staging_dir/target-*
           key: ${{ runner.os }}-downloads-${{ env.REPO_BRANCH }}-${{ needs.download.outputs.cache-key }}
           restore-keys: |
             ${{ runner.os }}-downloads-${{ env.REPO_BRANCH }}-
@@ -491,8 +505,20 @@ jobs:
           path: |
             ${{ env.SOURCE_DIR }}/staging_dir/host
             ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
-            ${{ env.SOURCE_DIR }}/staging_dir/target-*
           key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ needs.download.outputs.cache-key }}
+
+      - name: 编译后清理 (释放磁盘)
+        if: always()
+        run: |
+          set -euxo pipefail
+          echo "🔧 [清理] 释放磁盘空间..."
+          # 删除构建临时目录和 target（target-* 通常很大，由缓存管理）
+          rm -rf ${{ env.SOURCE_DIR }}/build_dir/* ${{ env.SOURCE_DIR }}/staging_dir/target-* ${{ env.SOURCE_DIR }}/bin/targets/* 2>/dev/null || true
+          # 清理 docker
+          docker system prune -af || true
+          # 清理 runner 储存的诊断日志
+          sudo rm -rf /home/runner/actions-runner/cached/_diag/* 2>/dev/null || true
+          df -h
 
       - name: 上传编译结果
         uses: actions/upload-artifact@v4
