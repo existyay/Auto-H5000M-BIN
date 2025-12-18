@@ -79,7 +79,7 @@ jobs:
   # ============================================================================
   # Job 1: 环境准备 (5-10 分钟, 可并行)
   # ============================================================================
-  环境准备:
+  "环境准备":
     runs-on: ubuntu-22.04
     steps:
       - name: 环境清理和准备
@@ -137,9 +137,9 @@ jobs:
   # ============================================================================
   # Job 2: 下载源码和编译链 (20-30 分钟, 首次)
   # ============================================================================
-  下载源码:
+  "下载源码":
     runs-on: ubuntu-22.04
-    needs: 环境准备
+    needs: "环境准备"
     outputs:
       cache-key: ${{ steps.cache-key.outputs.key }}
       config-hash: ${{ steps.config.outputs.hash }}
@@ -341,9 +341,9 @@ jobs:
   # ============================================================================
   # Job 3: 编译固件 (30-90 分钟, 首次; 5-30 分钟, 后续)
   # ============================================================================
-  编译固件:
+  "编译固件":
     runs-on: ubuntu-22.04
-    needs: 下载源码
+    needs: "下载源码"
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -358,7 +358,7 @@ jobs:
             ${{ env.SOURCE_DIR }}/staging_dir/host
             ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
             ${{ env.SOURCE_DIR }}/staging_dir/target-*
-          key: ${{ runner.os }}-downloads-${{ env.REPO_BRANCH }}-${{ needs.下载源码puts.cache-key }}
+          key: ${{ runner.os }}-downloads-${{ env.REPO_BRANCH }}-${{ needs."下载源码"utputs.cache-key }}e-key }}
           restore-keys: |
             ${{ runner.os }}-downloads-${{ env.REPO_BRANCH }}-
           compression-level: 6
@@ -620,7 +620,7 @@ jobs:
             ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
             ${{ env.SOURCE_DIR }}/staging_dir/target-*
             # 全部缓存 staging_dir 以加速后续构建
-          key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ needs.下载源码.outputs.cache-key }}
+          key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ needs."下载源码".outputs.cache-key }}
           compression-level: 6
 
       - name: 编译后清理 (释放磁盘)
@@ -647,9 +647,9 @@ jobs:
   # ============================================================================
   # Job 4: 打包和发布 (5-10 分钟)
   # ============================================================================
-  打包发布:
+  "打包发布":
     runs-on: ubuntu-22.04
-    needs: 编译固件
+    needs: "编译固件"
     if: success()
     steps:
       - name: 检出代码
