@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git config --global core.autocrlf input)",
+      "Bash(git config --global core.eol lf)"
+    ]
+  }
+}
