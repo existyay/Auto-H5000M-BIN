@@ -1,4 +1,4 @@
-name: Build ImmortalWrt H5000M (fix)
+name: Build ImmortalWrt H5000M fix
 
 on:
   workflow_dispatch:
