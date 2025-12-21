@@ -145,9 +145,8 @@ jobs:
             ${{ env.SOURCE_DIR }}/dl
             ${{ env.SOURCE_DIR }}/staging_dir
             ${{ env.SOURCE_DIR }}/build_dir
-            ${{ env.SOURCE_DIR }}/tmp
             ~/.ccache
-          key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'h5000m.extra.config') }}-${{ hashFiles('feeds.conf.default', 'h5000m.extra.config') }}-${{ steps.set-env.outputs.enable_adguardhome }}-${{ steps.set-env.outputs.enable_openclash }}-${{ steps.set-env.outputs.enable_mihomo }}-${{ steps.set-env.outputs.enable_upnp }}-${{ steps.set-env.outputs.enable_vlmcsd }}-${{ steps.set-env.outputs.enable_mosdns }}-${{ steps.set-env.outputs.enable_dockerman }}-${{ steps.set-env.outputs.enable_qmodem_next }}-${{ steps.set-env.outputs.enable_qmodem }}-${{ steps.set-env.outputs.enable_mwan }}-${{ steps.set-env.outputs.enable_homeproxy }}
+          key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'h5000m.extra.config') }}-${{ steps.set-env.outputs.enable_adguardhome }}-${{ steps.set-env.outputs.enable_openclash }}-${{ steps.set-env.outputs.enable_mihomo }}-${{ steps.set-env.outputs.enable_upnp }}-${{ steps.set-env.outputs.enable_vlmcsd }}-${{ steps.set-env.outputs.enable_mosdns }}-${{ steps.set-env.outputs.enable_dockerman }}-${{ steps.set-env.outputs.enable_qmodem_next }}-${{ steps.set-env.outputs.enable_qmodem }}-${{ steps.set-env.outputs.enable_mwan }}-${{ steps.set-env.outputs.enable_homeproxy }}
           restore-keys: |
             ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-
 
@@ -424,6 +423,28 @@ jobs:
           done
 
           echo "✅ 配置完成"
+
+      - name: 预下载构建依赖
+        run: |
+          cd $SOURCE_DIR
+          echo "📥 预下载构建依赖..."
+          THREADS=$(nproc)
+          if [ -z "$(ls -A dl 2>/dev/null)" ]; then
+            make download -j$THREADS || echo "⚠️ 下载失败，将在构建时重试"
+          else
+            echo "✅ 依赖已缓存，跳过预下载"
+          fi
+
+      - name: 预构建工具链
+        run: |
+          cd $SOURCE_DIR
+          echo "🔧 预构建工具链..."
+          THREADS=$(nproc)
+          if [ ! -d "staging_dir" ] || [ -z "$(ls -A staging_dir 2>/dev/null)" ]; then
+            make toolchain/install -j$THREADS || echo "⚠️ 工具链构建失败，将在构建时重试"
+          else
+            echo "✅ 工具链已缓存，跳过预构建"
+          fi
 
       - name: 打包源码
         run: |
