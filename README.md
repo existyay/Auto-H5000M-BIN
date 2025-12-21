@@ -28,6 +28,7 @@
 
 - **QModem** - 5G/LTE 模组管理（支持 Quectel、Fibocom 等）
 - **Mihomo** - 代理客户端
+- **HomeProxy（可选）** - 现代化多协议代理（可在 Actions 手动编译时启用）
 - **MWAN3** - 多 WAN 负载均衡
 - **UPnP** - 自动端口映射
 

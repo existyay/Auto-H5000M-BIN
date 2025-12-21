@@ -13,7 +13,7 @@ on:
       enable_openclash:
         description: '启用 OpenClash'
         required: false
-        default: true
+        default: false
         type: boolean
       enable_mihomo:
         description: '启用 Mihomo'
@@ -33,7 +33,7 @@ on:
       enable_mosdns:
         description: '启用 MosDNS'
         required: false
-        default: true
+        default: false
         type: boolean
       enable_dockerman:
         description: '启用 DockerMan'
@@ -54,6 +54,12 @@ on:
         description: '启用 MWAN (多WAN负载均衡)'
         required: false
         default: true
+        type: boolean
+
+      enable_homeproxy:
+        description: '启用 HomeProxy'
+        required: false
+        default: false
         type: boolean
 
 permissions:
@@ -80,6 +86,7 @@ jobs:
       enable_qmodem_next: ${{ steps.set-env.outputs.enable_qmodem_next }}
       enable_qmodem: ${{ steps.set-env.outputs.enable_qmodem }}
       enable_mwan: ${{ steps.set-env.outputs.enable_mwan }}
+      enable_homeproxy: ${{ steps.set-env.outputs.enable_homeproxy }}
     steps:
       - name: 设置环境变量
         id: set-env
@@ -94,6 +101,7 @@ jobs:
           echo "enable_qmodem_next=${{ inputs.enable_qmodem_next || true }}" >> $GITHUB_OUTPUT
           echo "enable_qmodem=${{ inputs.enable_qmodem || false }}" >> $GITHUB_OUTPUT
           echo "enable_mwan=${{ inputs.enable_mwan || true }}" >> $GITHUB_OUTPUT
+          echo "enable_homeproxy=${{ inputs.enable_homeproxy || false }}" >> $GITHUB_OUTPUT
 
       - name: 检出代码
         uses: actions/checkout@v4
@@ -165,6 +173,11 @@ jobs:
             if ! grep -q "qmodem" feeds.conf.default; then
               echo 'src-git qmodem https://github.com/FUjr/QModem.git;main' >> feeds.conf.default
             fi
+          fi
+
+          # HomeProxy feed
+          if [ "${{ steps.set-env.outputs.enable_homeproxy }}" = "true" ] && ! grep -q "homeproxy" feeds.conf.default; then
+            echo 'src-git homeproxy https://github.com/HomeProxy/immortalwrt-homeproxy.git;main' >> feeds.conf.default
           fi
 
           # 更新 feeds
