@@ -35,6 +35,7 @@
 ### 🛡️ 系统工具
 
 - **AdGuardHome** - 广告过滤 & DNS
+- **Adbyby Plus（可选）** - 广告过滤（可在 Actions 手动编译时启用）
 - **Argon 主题** - 美化界面
 - **TurboACC-MTK** - MTK 硬件加速
 - **Vlmcsd** - KMS 激活服务器

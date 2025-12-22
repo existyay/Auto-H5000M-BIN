@@ -62,6 +62,12 @@ on:
         default: false
         type: boolean
 
+      enable_adbyby_plus:
+        description: '启用 Adbyby Plus'
+        required: false
+        default: false
+        type: boolean
+
 permissions:
   contents: write
 
@@ -87,6 +93,7 @@ jobs:
       enable_qmodem: ${{ steps.set-env.outputs.enable_qmodem }}
       enable_mwan: ${{ steps.set-env.outputs.enable_mwan }}
       enable_homeproxy: ${{ steps.set-env.outputs.enable_homeproxy }}
+      enable_adbyby_plus: ${{ steps.set-env.outputs.enable_adbyby_plus }}
     steps:
       - name: 设置环境变量
         id: set-env
@@ -102,6 +109,7 @@ jobs:
           echo "enable_qmodem=${{ inputs.enable_qmodem || false }}" >> $GITHUB_OUTPUT
           echo "enable_mwan=${{ inputs.enable_mwan || true }}" >> $GITHUB_OUTPUT
           echo "enable_homeproxy=${{ inputs.enable_homeproxy || false }}" >> $GITHUB_OUTPUT
+          echo "enable_adbyby_plus=${{ inputs.enable_adbyby_plus || false }}" >> $GITHUB_OUTPUT
 
       - name: 检出代码
         uses: actions/checkout@v4
@@ -146,7 +154,7 @@ jobs:
             ${{ env.SOURCE_DIR }}/staging_dir
             ${{ env.SOURCE_DIR }}/build_dir
             ~/.ccache
-          key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'h5000m.extra.config') }}-${{ steps.set-env.outputs.enable_adguardhome }}-${{ steps.set-env.outputs.enable_openclash }}-${{ steps.set-env.outputs.enable_mihomo }}-${{ steps.set-env.outputs.enable_upnp }}-${{ steps.set-env.outputs.enable_vlmcsd }}-${{ steps.set-env.outputs.enable_mosdns }}-${{ steps.set-env.outputs.enable_dockerman }}-${{ steps.set-env.outputs.enable_qmodem_next }}-${{ steps.set-env.outputs.enable_qmodem }}-${{ steps.set-env.outputs.enable_mwan }}-${{ steps.set-env.outputs.enable_homeproxy }}
+          key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'h5000m.extra.config') }}-${{ steps.set-env.outputs.enable_adguardhome }}-${{ steps.set-env.outputs.enable_openclash }}-${{ steps.set-env.outputs.enable_mihomo }}-${{ steps.set-env.outputs.enable_upnp }}-${{ steps.set-env.outputs.enable_vlmcsd }}-${{ steps.set-env.outputs.enable_mosdns }}-${{ steps.set-env.outputs.enable_dockerman }}-${{ steps.set-env.outputs.enable_qmodem_next }}-${{ steps.set-env.outputs.enable_qmodem }}-${{ steps.set-env.outputs.enable_mwan }}-${{ steps.set-env.outputs.enable_homeproxy }}-${{ steps.set-env.outputs.enable_adbyby_plus }}
           restore-keys: |
             ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-
 
@@ -200,6 +208,11 @@ jobs:
             echo 'src-git homeproxy https://github.com/HomeProxy/immortalwrt-homeproxy.git;main' >> feeds.conf.default
           fi
 
+          # Adbyby Plus feed
+          if [ "${{ steps.set-env.outputs.enable_adbyby_plus }}" = "true" ] && ! grep -q "coolsnowwolf_luci" feeds.conf.default; then
+            echo 'src-git coolsnowwolf_luci https://github.com/coolsnowwolf/luci.git;master' >> feeds.conf.default
+          fi
+
           # 更新 feeds
           echo "🔄 更新 feeds..."
           ./scripts/feeds update -a -j $(nproc)
@@ -214,7 +227,7 @@ jobs:
           if [ "${{ steps.set-env.outputs.enable_adguardhome }}" = "true" ]; then
             # 克隆 luci-app-adguardhome (如果不存在)
             [ ! -d "package/luci-app-adguardhome" ] && \
-              git clone --depth=1 https://github.com/rufengsuixing/luci-app-adguardhome.git package/luci-app-adguardhome
+              git clone --depth=1 https://github.com/kongfl888/luci-app-adguardhome.git package/luci-app-adguardhome
             
             # 修复 luci-app-adguardhome 的安装脚本（/usr/bin/AdGuardHome 路径冲突问题）
             # 问题：脚本假设 /usr/bin/AdGuardHome 是目录，但可能是文件
@@ -397,6 +410,13 @@ jobs:
             enable_pkg "luci-app-homeproxy"
           else
             disable_pkg "luci-app-homeproxy"
+          fi
+
+          # Adbyby Plus
+          if [ "${{ steps.set-env.outputs.enable_adbyby_plus }}" = "true" ]; then
+            enable_pkg "luci-app-adbyby-plus"
+          else
+            disable_pkg "luci-app-adbyby-plus"
           fi
 
           make defconfig
@@ -608,6 +628,7 @@ jobs:
           • QModem:        ${{ needs.prepare.outputs.enable_qmodem }}
           • MWAN:          ${{ needs.prepare.outputs.enable_mwan }}
           • HomeProxy:     ${{ needs.prepare.outputs.enable_homeproxy }}
+          • Adbyby Plus:   ${{ needs.prepare.outputs.enable_adbyby_plus }}
 
           📦 产物文件:
           EOF
@@ -645,6 +666,7 @@ jobs:
             - DockerMan: ${{ needs.prepare.outputs.enable_dockerman }}
             - MWAN: ${{ needs.prepare.outputs.enable_mwan }}
             - HomeProxy: ${{ needs.prepare.outputs.enable_homeproxy }}
+            - Adbyby Plus: ${{ needs.prepare.outputs.enable_adbyby_plus }}
 
             💾 下载产物: 见下方 Artifacts
             📋 详细信息: 见 MANIFEST.txt
