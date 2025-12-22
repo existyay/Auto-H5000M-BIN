@@ -194,21 +194,20 @@ jobs:
             cp "$GITHUB_WORKSPACE/feeds.conf.default" ./feeds.conf.default
           fi
 
-          # 保证 feeds.conf.default 和 feeds 目录同步，彻底避免残留
-          # 先清理所有 nikki/qmodem/homeproxy/coolsnowwolf_luci 相关目录和索引
-          rm -rf feeds/nikki* feeds/qmodem* feeds/homeproxy* feeds/coolsnowwolf_luci* 2>/dev/null || true
-          rm -f feeds/nikki.index feeds/qmodem.index feeds/homeproxy.index feeds/coolsnowwolf_luci.index 2>/dev/null || true
+          # feeds.conf.default 和 feeds 目录/索引彻底同步，彻底避免 nikki 报错
+          # 先清理所有 nikki 相关目录和索引
+          rm -rf feeds/nikki feeds/nikki.* feeds/nikki* feeds/nikki.index 2>/dev/null || true
 
-          # 根据输入动态管理 feeds，确保 feeds.conf.default 和 feeds 目录始终同步
-          # Nikki feed
+          # 动态管理 feeds.conf.default
           if [ "${{ steps.set-env.outputs.enable_mihomo }}" = "true" ]; then
-            if ! grep -q "nikki" feeds.conf.default; then
+            if ! grep -q "src-git nikki" feeds.conf.default; then
               echo 'src-git nikki https://github.com/nikkinikki-org/OpenWrt-nikki.git;main' >> feeds.conf.default
             fi
           else
-            sed -i '/nikki/d' feeds.conf.default
+            sed -i '/src-git nikki/d' feeds.conf.default
           fi
 
+          # 其他 feeds 动态管理（保持原有逻辑）
           # QModem feed
           if [ "${{ steps.set-env.outputs.enable_qmodem_next }}" = "true" ] || [ "${{ steps.set-env.outputs.enable_qmodem }}" = "true" ]; then
             if ! grep -q "qmodem" feeds.conf.default; then
@@ -217,7 +216,6 @@ jobs:
           else
             sed -i '/qmodem/d' feeds.conf.default
           fi
-
           # HomeProxy feed
           if [ "${{ steps.set-env.outputs.enable_homeproxy }}" = "true" ]; then
             if ! grep -q "homeproxy" feeds.conf.default; then
@@ -226,7 +224,6 @@ jobs:
           else
             sed -i '/homeproxy/d' feeds.conf.default
           fi
-
           # Adbyby Plus feed
           if [ "${{ steps.set-env.outputs.enable_adbyby_plus }}" = "true" ]; then
             if ! grep -q "coolsnowwolf_luci" feeds.conf.default; then
@@ -236,7 +233,7 @@ jobs:
             sed -i '/coolsnowwolf_luci/d' feeds.conf.default
           fi
 
-          # 更新 feeds
+          # feeds update/install
           echo "🔄 更新 feeds..."
           ./scripts/feeds update -a -j $(nproc)
           ./scripts/feeds install -a -f -j $(nproc)
