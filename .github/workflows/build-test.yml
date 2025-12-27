@@ -70,6 +70,11 @@ on:
         required: false
         default: false
         type: boolean
+      enable_smartdns:
+        description: '启用 SmartDNS'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -102,11 +107,12 @@ jobs:
       enable_homeproxy: ${{ steps.set-env.outputs.enable_homeproxy }}
       enable_adbyby_plus: ${{ steps.set-env.outputs.enable_adbyby_plus }}
       enable_original_modem: ${{ steps.set-env.outputs.enable_original_modem }}
+      enable_smartdns: ${{ steps.set-env.outputs.enable_smartdns }}
     steps:
       - name: 设置环境变量
         id: set-env
         run: |
-          for var in adguardhome openclash nikki upnp vlmcsd mosdns dockerman qmodem_next qmodem mwan homeproxy adbyby_plus original_modem; do
+          for var in adguardhome openclash nikki upnp vlmcsd mosdns dockerman qmodem_next qmodem mwan homeproxy adbyby_plus original_modem smartdns; do
             value="${!var}"
             [ -z "$value" ] && value="false"
             echo "enable_$var=$value" >> $GITHUB_OUTPUT
@@ -240,6 +246,7 @@ jobs:
           ENABLE_QMODEM_NEXT: ${{ steps.set-env.outputs.enable_qmodem_next }}
           ENABLE_QMODEM: ${{ steps.set-env.outputs.enable_qmodem }}
           ENABLE_ORIGINAL_MODEM: ${{ steps.set-env.outputs.enable_original_modem }}
+          ENABLE_SMARTDNS: ${{ steps.set-env.outputs.enable_smartdns }}
         run: |
           cd $SOURCE_DIR
           echo "⚙️ 配置构建选项..."
@@ -273,6 +280,7 @@ jobs:
           [ "$ENABLE_MWAN" = "true" ] && echo "CONFIG_PACKAGE_luci-app-mwan=y" >> .config || disabled_pkgs+=("luci-app-mwan")
           [ "$ENABLE_HOMEPROXY" = "true" ] && echo "CONFIG_PACKAGE_luci-app-homeproxy=y" >> .config || disabled_pkgs+=("luci-app-homeproxy")
           [ "$ENABLE_ADBYBY_PLUS" = "true" ] && echo "CONFIG_PACKAGE_luci-app-adbyby_plus=y" >> .config || disabled_pkgs+=("luci-app-adbyby_plus")
+          [ "$ENABLE_SMARTDNS" = "true" ] && echo "CONFIG_PACKAGE_luci-app-smartdns=y" >> .config || disabled_pkgs+=("luci-app-smartdns")
           if [ "$ENABLE_ORIGINAL_MODEM" = "true" ]; then
             echo "CONFIG_PACKAGE_luci-app-modem=y" >> .config
             echo "CONFIG_PACKAGE_modem=y" >> .config
@@ -477,6 +485,7 @@ jobs:
           echo "• HomeProxy:     ${{ needs.prepare.outputs.enable_homeproxy }}" >> artifacts/MANIFEST.txt
           echo "• Adbyby Plus:   ${{ needs.prepare.outputs.enable_adbyby_plus }}" >> artifacts/MANIFEST.txt
           echo "• 原版 Modem:    ${{ needs.prepare.outputs.enable_original_modem }}" >> artifacts/MANIFEST.txt
+          echo "• SmartDNS:      ${{ needs.prepare.outputs.enable_smartdns }}" >> artifacts/MANIFEST.txt
           echo "" >> artifacts/MANIFEST.txt
           echo "📦 产物文件:" >> artifacts/MANIFEST.txt
           ls -lh artifacts/ | grep -v "^total" | awk '{print "  • " $9 " (" $5 ")"}' >> artifacts/MANIFEST.txt
@@ -512,6 +521,7 @@ jobs:
             - HomeProxy: ${{ needs.prepare.outputs.enable_homeproxy }}
             - Adbyby Plus: ${{ needs.prepare.outputs.enable_adbyby_plus }}
             - 原版 Modem: ${{ needs.prepare.outputs.enable_original_modem }}
+            - SmartDNS: ${{ needs.prepare.outputs.enable_smartdns }}
 
             💾 下载产物: 见下方 Artifacts
             📋 详细信息: 见 MANIFEST.txt
