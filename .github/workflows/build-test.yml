@@ -454,8 +454,9 @@ jobs:
           if [ "${{ steps.set-env.outputs.enable_original_modem }}" = "true" ]; then
             echo "CONFIG_PACKAGE_luci-app-modem=y" >> .config
             echo "CONFIG_PACKAGE_modem=y" >> .config
+            echo "CONFIG_PACKAGE_luci-i18n-modem-zh-cn=y" >> .config
           else
-            disabled_pkgs+=("luci-app-modem" "modem")
+            disabled_pkgs+=("luci-app-modem" "modem" "luci-i18n-modem-zh-cn" "luci-i18n-modem-en")
           fi
 
           # QModem 特殊处理（互斥）
@@ -503,8 +504,21 @@ jobs:
           all_disabled=("luci-app-wrtbwmon" "luci-app-rclone" "rclone" "rclone-ng" "rclone-webui-react" "${disabled_pkgs[@]}")
           for pkg in "${all_disabled[@]}"; do
             sed -i "/^CONFIG_PACKAGE_${pkg}=/d" .config
+            sed -i "/^CONFIG_PACKAGE_${pkg}=m/d" .config
             echo "# CONFIG_PACKAGE_${pkg} is not set" >> .config
           done
+
+          # 额外确保 modem 相关包被禁用（如果未启用原版 modem）
+          if [ "${{ steps.set-env.outputs.enable_original_modem }}" != "true" ]; then
+            for pkg in luci-app-modem modem luci-i18n-modem-zh-cn luci-i18n-modem-en; do
+              sed -i "/^CONFIG_PACKAGE_${pkg}=/d" .config
+              sed -i "/^CONFIG_PACKAGE_${pkg}=m/d" .config
+              echo "# CONFIG_PACKAGE_${pkg} is not set" >> .config
+            done
+          fi
+
+          # 再次运行 defconfig 确保配置一致性
+          make defconfig
 
           echo "✅ 配置完成"
 
