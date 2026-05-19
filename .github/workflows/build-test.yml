@@ -70,6 +70,11 @@ on:
         required: false
         default: false
         type: boolean
+      publish_release:
+        description: '上传 Release（默认 true）'
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -84,755 +89,162 @@ env:
   CONFIG_URL: https://raw.githubusercontent.com/padavanonly/immortalwrt-mt798x-6.6/refs/heads/mt798x-mt799x-6.6-mtwifi/defconfig/mt7987_mt7992.config
   SOURCE_DIR: immortalwrt
   TZ: Asia/Shanghai
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 
 jobs:
-  prepare:
+  build:
     runs-on: ubuntu-22.04
-    outputs:
-      enable_adguardhome: ${{ steps.set-env.outputs.enable_adguardhome }}
-      enable_openclash: ${{ steps.set-env.outputs.enable_openclash }}
-      enable_nikki: ${{ steps.set-env.outputs.enable_nikki }}
-      enable_upnp: ${{ steps.set-env.outputs.enable_upnp }}
-      enable_vlmcsd: ${{ steps.set-env.outputs.enable_vlmcsd }}
-      enable_mosdns: ${{ steps.set-env.outputs.enable_mosdns }}
-      enable_dockerman: ${{ steps.set-env.outputs.enable_dockerman }}
-      enable_qmodem_next: ${{ steps.set-env.outputs.enable_qmodem_next }}
-      enable_qmodem: ${{ steps.set-env.outputs.enable_qmodem }}
-      enable_mwan: ${{ steps.set-env.outputs.enable_mwan }}
-      enable_homeproxy: ${{ steps.set-env.outputs.enable_homeproxy }}
-      enable_adbyby_plus: ${{ steps.set-env.outputs.enable_adbyby_plus }}
-      enable_original_modem: ${{ steps.set-env.outputs.enable_original_modem }}
+    timeout-minutes: 600
     steps:
-      - name: 设置环境变量
-        id: set-env
-        run: |
-          # workflow_dispatch 使用界面输入；schedule 没有 inputs，使用这里的自动编译默认值。
-          set_feature_output() {
-            local name="$1"
-            local scheduled_default="$2"
-            local manual_value="$3"
-            local value="$scheduled_default"
-
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-              value="$manual_value"
-            fi
-
-            [ -n "$value" ] || value="$scheduled_default"
-            echo "${name}=${value}" >> "$GITHUB_OUTPUT"
-            echo "${name}=${value}"
-          }
-
-          set_feature_output "enable_adguardhome" "false" "${{ github.event.inputs.enable_adguardhome }}"
-          set_feature_output "enable_openclash" "false" "${{ github.event.inputs.enable_openclash }}"
-          set_feature_output "enable_nikki" "true" "${{ github.event.inputs.enable_nikki }}"
-          set_feature_output "enable_upnp" "true" "${{ github.event.inputs.enable_upnp }}"
-          set_feature_output "enable_vlmcsd" "true" "${{ github.event.inputs.enable_vlmcsd }}"
-          set_feature_output "enable_mosdns" "true" "${{ github.event.inputs.enable_mosdns }}"
-          set_feature_output "enable_dockerman" "false" "${{ github.event.inputs.enable_dockerman }}"
-          set_feature_output "enable_qmodem_next" "true" "${{ github.event.inputs.enable_qmodem_next }}"
-          set_feature_output "enable_qmodem" "false" "${{ github.event.inputs.enable_qmodem }}"
-          set_feature_output "enable_mwan" "true" "${{ github.event.inputs.enable_mwan }}"
-          set_feature_output "enable_homeproxy" "false" "${{ github.event.inputs.enable_homeproxy }}"
-          set_feature_output "enable_adbyby_plus" "false" "${{ github.event.inputs.enable_adbyby_plus }}"
-          set_feature_output "enable_original_modem" "false" "${{ github.event.inputs.enable_original_modem }}"
-
       - name: 检出代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: 环境准备和缓存设置
+      - name: 解析功能开关
+        id: features
+        shell: bash
         run: |
-          echo "🔧 准备构建环境..."
+          set -euo pipefail
 
-          # 基础清理
-          sudo rm -rf /home/runner/actions-runner/cached/_diag/* 2>/dev/null || true
-          docker system prune -f 2>/dev/null || true
+          # workflow_dispatch 时使用用户输入；schedule/其他事件用此处定义的默认值。
+          declare -A scheduled_defaults=(
+            [enable_adguardhome]=false
+            [enable_openclash]=false
+            [enable_nikki]=true
+            [enable_upnp]=true
+            [enable_vlmcsd]=true
+            [enable_mosdns]=true
+            [enable_dockerman]=false
+            [enable_qmodem_next]=true
+            [enable_qmodem]=false
+            [enable_mwan]=true
+            [enable_homeproxy]=false
+            [enable_adbyby_plus]=false
+            [enable_original_modem]=false
+            [publish_release]=true
+          )
 
-          # 检查磁盘空间
-          AVAIL_GB=$(df -BG / | tail -1 | awk '{print $4}' | sed 's/G//')
-          echo "💾 可用磁盘空间: ${AVAIL_GB}GB"
+          declare -A manual=(
+            [enable_adguardhome]='${{ github.event.inputs.enable_adguardhome }}'
+            [enable_openclash]='${{ github.event.inputs.enable_openclash }}'
+            [enable_nikki]='${{ github.event.inputs.enable_nikki }}'
+            [enable_upnp]='${{ github.event.inputs.enable_upnp }}'
+            [enable_vlmcsd]='${{ github.event.inputs.enable_vlmcsd }}'
+            [enable_mosdns]='${{ github.event.inputs.enable_mosdns }}'
+            [enable_dockerman]='${{ github.event.inputs.enable_dockerman }}'
+            [enable_qmodem_next]='${{ github.event.inputs.enable_qmodem_next }}'
+            [enable_qmodem]='${{ github.event.inputs.enable_qmodem }}'
+            [enable_mwan]='${{ github.event.inputs.enable_mwan }}'
+            [enable_homeproxy]='${{ github.event.inputs.enable_homeproxy }}'
+            [enable_adbyby_plus]='${{ github.event.inputs.enable_adbyby_plus }}'
+            [enable_original_modem]='${{ github.event.inputs.enable_original_modem }}'
+            [publish_release]='${{ github.event.inputs.publish_release }}'
+          )
 
-          if [ "$AVAIL_GB" -lt 6 ]; then
-            echo "❌ 磁盘空间不足，需要至少6GB"
-            exit 1
-          fi
+          for k in "${!scheduled_defaults[@]}"; do
+            v="${scheduled_defaults[$k]}"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${manual[$k]:-}" ]; then
+              v="${manual[$k]}"
+            fi
+            echo "$k=$v" >> "$GITHUB_OUTPUT"
+            echo "$k=$v"
+          done
 
-          # 安装必要依赖
+      - name: 释放磁盘空间
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "🧹 释放磁盘空间..."
+          docker rmi $(docker images -q) 2>/dev/null || true
+          docker system prune -af 2>/dev/null || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /etc/mysql /etc/php \
+            /usr/local/share/boost /usr/share/swift /opt/hostedtoolcache /usr/local/.ghcup \
+            /usr/local/graalvm /imagegeneration /usr/local/share \
+            /var/cache/apt/archives/* 2>/dev/null || true
+          sudo apt-get -y purge azure-cli* docker* ghc* zulu* hhvm* llvm* firefox* \
+            google* dotnet* aspnetcore* powershell* openjdk* adoptopenjdk* mysql* php* \
+            mongodb* moby* snap* 2>/dev/null || true
+          sudo apt-get -y autoremove --purge
+          sudo apt-get -y clean
+          df -h /
+
+      - name: 安装编译依赖
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo timedatectl set-timezone "$TZ" || true
           sudo apt-get update -qq
-          sudo apt-get install -y build-essential git ccache python3 python3-pip \
-            libncurses5-dev libssl-dev libgmp3-dev libmbedtls-dev rustc cargo \
-            golang-go autoconf automake libtool patch make gcc g++
-
-          # 设置 ccache
-          echo "📦 设置 ccache..."
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ack antlr3 asciidoc autoconf automake autopoint binutils bison \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk \
+            gettext gcc-multilib g++-multilib git gnutls-dev gperf haveged help2man intltool \
+            lib32gcc-s1 libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev \
+            libltdl-dev libmbedtls-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev \
+            libpython3-dev libreadline-dev libssl-dev libtool lld llvm lrzsz mkisofs msmtp \
+            nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply \
+            python3-pyelftools python3-setuptools qemu-utils re2c rsync scons squashfs-tools \
+            subversion swig texinfo uglifyjs unzip upx-ucl vim wget xmlto xxd zlib1g-dev \
+            rustc cargo golang-go zstd file
           export PATH="/usr/lib/ccache:$PATH"
           ccache --version || true
+
+      - name: 设置 ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: immortalwrt-h5000m-${{ env.REPO_BRANCH }}
+          max-size: 8G
+          save: true
 
       - name: 恢复构建缓存
         uses: actions/cache@v4
         with:
           path: |
             ${{ env.SOURCE_DIR }}/dl
-            ${{ env.SOURCE_DIR }}/staging_dir
-            ~/.ccache
-          key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'h5000m.extra.config') }}
+            ${{ env.SOURCE_DIR }}/staging_dir/host
+            ${{ env.SOURCE_DIR }}/staging_dir/toolchain-*
+            ${{ env.SOURCE_DIR }}/build_dir/host
+            ${{ env.SOURCE_DIR }}/build_dir/toolchain-*
+          key: ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-${{ hashFiles('feeds.conf.default', 'h5000m.extra.config', 'patches/**', 'scripts/local-build.sh') }}
           restore-keys: |
             ${{ runner.os }}-build-${{ env.REPO_BRANCH }}-
 
-      - name: 源码和依赖准备
-        run: |
-          # 检查并准备源码
-          if [ ! -d "$SOURCE_DIR" ] || [ ! -d "$SOURCE_DIR/.git" ]; then
-            echo "📥 克隆源码..."
-            rm -rf "$SOURCE_DIR" 2>/dev/null || true
-            git clone -b $REPO_BRANCH --single-branch --depth=1 $REPO_URL $SOURCE_DIR
-          else
-            echo "🔄 检查源码更新..."
-            cd $SOURCE_DIR
-            CURRENT_BRANCH=$(git branch --show-current)
-            if [ "$CURRENT_BRANCH" != "$REPO_BRANCH" ]; then
-              echo "分支不同，重新克隆..."
-              cd ..
-              rm -rf "$SOURCE_DIR"
-              git clone -b $REPO_BRANCH --single-branch --depth=1 $REPO_URL $SOURCE_DIR
-            else
-              git fetch origin $REPO_BRANCH
-              LOCAL_COMMIT=$(git rev-parse HEAD)
-              REMOTE_COMMIT=$(git rev-parse FETCH_HEAD)
-              if [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ]; then
-                echo "有更新，重置到最新..."
-                git reset --hard FETCH_HEAD
-              else
-                echo "源码已是最新"
-              fi
-            fi
-            cd ..
-          fi
-
-          # 设置 feeds
-          cd $SOURCE_DIR
-          if [ -f "$GITHUB_WORKSPACE/feeds.conf.default" ]; then
-            cp "$GITHUB_WORKSPACE/feeds.conf.default" ./feeds.conf.default
-          fi
-
-          # 动态管理 feeds.conf.default (必须在清理和更新之前完成)
-          if [ "${{ steps.set-env.outputs.enable_nikki }}" != "true" ]; then
-            echo "🔧 禁用 nikki feed..."
-            sed -i '/src-git nikki/d' feeds.conf.default
-            sed -i '/nikki/d' feeds.conf.default
-          fi
-
-          # QModem feed
-          if [ "${{ steps.set-env.outputs.enable_qmodem_next }}" != "true" ] && [ "${{ steps.set-env.outputs.enable_qmodem }}" != "true" ]; then
-            echo "🔧 禁用 qmodem feed..."
-            sed -i '/qmodem/d' feeds.conf.default
-          fi
-
-          # Adbyby Plus 现在通过直接 clone 仓库安装，不再使用 feed
-
-          # 显示最终的 feeds.conf.default 内容
-          echo "📋 当前 feeds.conf.default 内容:"
-          cat feeds.conf.default
-
-          # 清理 feeds 缓存
-          echo "🧹 清理 feeds 缓存..."
-          rm -rf tmp/.config* tmp/.packageinfo tmp/.targetinfo tmp/info tmp/.feeds* 2>/dev/null || true
-          
-          # 清理禁用的 feeds
-          [ "${{ steps.set-env.outputs.enable_nikki }}" != "true" ] && rm -rf feeds/nikki* package/feeds/nikki 2>/dev/null || true
-          [ "${{ steps.set-env.outputs.enable_qmodem_next }}" != "true" ] && [ "${{ steps.set-env.outputs.enable_qmodem }}" != "true" ] && rm -rf feeds/qmodem* package/feeds/qmodem 2>/dev/null || true
-
-          # feeds update/install
-          echo "🔄 更新 feeds..."
-          ./scripts/feeds update -a -j $(nproc) || true
-          ./scripts/feeds install -a -f -j $(nproc) || true
-          
-          echo "✅ feeds 处理完成"
-
-      - name: 修复依赖和补丁
-        run: |
-          cd $SOURCE_DIR
-          echo "🔧 应用补丁和修复依赖..."
-          
-          # ⭐ 修复 ebtables 下载问题 (镜像站文件哈希不匹配)
-          EBTABLES_MAKEFILE="package/network/utils/ebtables/Makefile"
-          if [ -f "$EBTABLES_MAKEFILE" ]; then
-            echo "🔧 修复 ebtables 下载源和哈希..."
-            # 使用 netfilter 官方 GitHub 镜像
-            sed -i 's|https://git.netfilter.org/ebtables|https://github.com/netfilter/ebtables.git|g' "$EBTABLES_MAKEFILE"
-            sed -i 's|git://git.netfilter.org/ebtables|https://github.com/netfilter/ebtables.git|g' "$EBTABLES_MAKEFILE"
-            # 更新哈希值为镜像站实际提供的文件哈希 (解决哈希不匹配问题)
-            sed -i 's|PKG_MIRROR_HASH:=.*|PKG_MIRROR_HASH:=skip|g' "$EBTABLES_MAKEFILE"
-            echo "✅ ebtables 下载源已修复"
-          fi
-          
-          # ⭐ 修复 QMI WWAN 驱动 Linux 6.6 兼容性 (所有厂商驱动)
-          fix_qmi_driver() {
-            local SOURCE_FILE="$1"
-            if [ -f "$SOURCE_FILE" ]; then
-              echo "🔧 修复驱动: $SOURCE_FILE"
-              
-              # 修复 u64_stats API 变更 (Linux 6.x 移除了 _irq 后缀)
-              sed -i 's/u64_stats_fetch_begin_irq/u64_stats_fetch_begin/g' "$SOURCE_FILE"
-              sed -i 's/u64_stats_fetch_retry_irq/u64_stats_fetch_retry/g' "$SOURCE_FILE"
-              
-              # 修复 dev_addr 只读问题 (Linux 5.15+ dev_addr 变为 const)
-              # 方法1: 使用 eth_hw_addr_set (推荐)
-              if grep -q 'memcpy.*qmap_net->dev_addr.*real_dev->dev_addr' "$SOURCE_FILE"; then
-                sed -i 's/memcpy[[:space:]]*(qmap_net->dev_addr,[[:space:]]*real_dev->dev_addr,[[:space:]]*ETH_ALEN);/eth_hw_addr_set(qmap_net, real_dev->dev_addr);/g' "$SOURCE_FILE"
-              fi
-              # 方法2: 处理其他可能的 memcpy 到 dev_addr 的情况
-              if grep -q 'memcpy.*->dev_addr' "$SOURCE_FILE"; then
-                # 使用 dev_addr_set 作为备用方案
-                sed -i 's/memcpy[[:space:]]*(\([^,]*\)->dev_addr,[[:space:]]*\([^,]*\),[[:space:]]*ETH_ALEN);/dev_addr_set(\1, \2);/g' "$SOURCE_FILE" 2>/dev/null || true
-              fi
-              
-              echo "✅ 驱动修复完成: $SOURCE_FILE"
-            fi
-          }
-          
-          # 修复 Fibocom QMI WWAN 驱动
-          fix_qmi_driver "package/mtk/applications/5g-modem/fibocom_QMI_WWAN/qmi_wwan_f.c"
-          fix_qmi_driver "package/mtk/applications/5g-modem/fibocom_QMI_WWAN/src/qmi_wwan_f.c"
-          
-          # 修复 Quectel QMI WWAN 驱动 (如果存在)
-          fix_qmi_driver "package/mtk/applications/5g-modem/quectel_QMI_WWAN/qmi_wwan_q.c"
-          fix_qmi_driver "package/mtk/applications/5g-modem/quectel_QMI_WWAN/src/qmi_wwan_q.c"
-          
-          # 修复 Simcom QMI WWAN 驱动 (如果存在)
-          fix_qmi_driver "package/mtk/applications/5g-modem/simcom_QMI_WWAN/qmi_wwan_s.c"
-          fix_qmi_driver "package/mtk/applications/5g-modem/simcom_QMI_WWAN/src/qmi_wwan_s.c"
-          
-          # 修复 feeds 中的 QModem 驱动 (如果存在且已启用)
-          if [ -d "feeds/qmodem" ]; then
-            for driver_file in $(find feeds/qmodem -name "*.c" -type f 2>/dev/null | xargs grep -l "u64_stats_fetch_begin_irq\|memcpy.*dev_addr" 2>/dev/null || true); do
-              fix_qmi_driver "$driver_file"
-            done
-          fi
-          
-          # 下载额外包
-          if [ "${{ steps.set-env.outputs.enable_adguardhome }}" = "true" ]; then
-            [ ! -d "package/luci-app-adguardhome" ] && \
-              git clone --depth=1 https://github.com/kongfl888/luci-app-adguardhome.git package/luci-app-adguardhome
-            
-            AGH_LUCI_SCRIPT="package/luci-app-adguardhome/root/usr/share/AdGuardHome/links.sh"
-            if [ -f "$AGH_LUCI_SCRIPT" ]; then
-              sed -i 's|mv /usr/bin/AdGuardHome/AdGuardHome|rm -rf /usr/bin/AdGuardHome 2>/dev/null; mkdir -p /usr/bin/AdGuardHome; mv /tmp/AdGuardHomeupdate/AdGuardHome_linux_*/AdGuardHome|g' "$AGH_LUCI_SCRIPT" || true
-            fi
-            
-            AGH_LUCI_INIT="package/luci-app-adguardhome/root/etc/init.d/AdGuardHome"
-            if [ -f "$AGH_LUCI_INIT" ]; then
-              sed -i '/^#!/a\
-            [ -f /usr/bin/AdGuardHome ] && rm -f /usr/bin/AdGuardHome && mkdir -p /usr/bin/AdGuardHome' "$AGH_LUCI_INIT" || true
-            fi
-          fi
-
-          # Adbyby Plus Lite 安装 (仓库结构: luci-app-adbyby-plus 子目录)
-          if [ "${{ steps.set-env.outputs.enable_adbyby_plus }}" = "true" ]; then
-            echo "🔧 安装 Adbyby Plus Lite..."
-            if [ ! -d "package/luci-app-adbyby-plus" ]; then
-              rm -rf /tmp/adbyby-plus-lite
-              git clone --depth=1 --recurse-submodules https://github.com/kongfl888/luci-app-adbyby-plus-lite.git /tmp/adbyby-plus-lite
-              if [ ! -d "/tmp/adbyby-plus-lite/luci-app-adbyby-plus" ]; then
-                echo "❌ Adbyby Plus Lite 仓库结构异常，未找到 luci-app-adbyby-plus 目录"
-                exit 1
-              fi
-              cp -r /tmp/adbyby-plus-lite/luci-app-adbyby-plus package/luci-app-adbyby-plus
-              rm -rf /tmp/adbyby-plus-lite
-            fi
-            if [ ! -f "package/luci-app-adbyby-plus/Makefile" ]; then
-              echo "❌ Adbyby Plus Lite 安装失败，package/luci-app-adbyby-plus/Makefile 不存在"
-              exit 1
-            fi
-            # 确保依赖包存在 (ipset 用于 Plus+ 模式)
-            echo "CONFIG_PACKAGE_ipset=y" >> .config 2>/dev/null || true
-            echo "✅ Adbyby Plus Lite 安装完成"
-          fi
-
-          # MosDNS 安装步骤
-          if [ "${{ steps.set-env.outputs.enable_mosdns }}" = "true" ]; then
-            if [ ! -d "feeds/packages/lang/golang" ] || [ ! -f "feeds/packages/lang/golang/Makefile" ]; then
-              rm -rf feeds/packages/lang/golang
-              git clone https://github.com/sbwml/packages_lang_golang -b 24.x feeds/packages/lang/golang
-            fi
-            rm -rf feeds/packages/net/v2ray-geodata
-            if [ ! -d "package/mosdns" ]; then
-              git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
-            fi
-            # OpenWrt 24.10 golang feed currently provides Go 1.24.x. Recent v2dat
-            # patches in luci-app-mosdns raise go.mod to 1.25.0, which makes the
-            # package fail before compilation starts.
-            if [ -d "package/mosdns/v2dat/patches" ]; then
-              grep -RIl 'go 1\.25\.0' package/mosdns/v2dat/patches | xargs -r sed -i 's/go 1\.25\.0/go 1.24/g'
-            fi
-            if [ ! -d "package/v2ray-geodata" ]; then
-              git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
-            fi
-          fi
-          
-          rm -rf package/feeds/packages/{exim,onionshare-cli,python-zope-event,python-zope-interface,python-gevent,python-twisted} 2>/dev/null || true
-
-          if [ "${{ steps.set-env.outputs.enable_vlmcsd }}" = "true" ]; then
-            echo "🔧 确保 VLMCSd 包已安装..."
-            ./scripts/feeds install -f vlmcsd || true
-            ./scripts/feeds install -f luci-app-vlmcsd || true
-          fi
-
-          # Nikki feed publishes both mihomo-alpha and mihomo-meta as providers for the
-          # virtual mihomo package. Their mutual CONFLICTS entries can produce a Kconfig
-          # recursive dependency error, so keep the stable default provider only.
-          if [ "${{ steps.set-env.outputs.enable_nikki }}" = "true" ]; then
-            echo "🔧 固定 Nikki 使用 mihomo-meta..."
-            rm -rf feeds/nikki/mihomo-alpha package/feeds/nikki/mihomo-alpha 2>/dev/null || true
-            if [ -f "feeds/nikki/mihomo-meta/Makefile" ]; then
-              sed -i '/^[[:space:]]*CONFLICTS:=mihomo-alpha/d' "feeds/nikki/mihomo-meta/Makefile" || true
-            fi
-            if [ -f "package/feeds/nikki/mihomo-meta/Makefile" ]; then
-              sed -i '/^[[:space:]]*CONFLICTS:=mihomo-alpha/d' "package/feeds/nikki/mihomo-meta/Makefile" || true
-            fi
-            rm -rf tmp/.config* tmp/.packageinfo tmp/info/.packageinfo* 2>/dev/null || true
-          fi
-
-          # QModem 相关修复
-          if [ -d "package/feeds/qmodem" ]; then
-            rm -rf package/feeds/qmodem/ndisc6 2>/dev/null || true
-            # 移除 kmod-mhi-wwan 依赖
-            find . -path "*qmodem*Makefile" -exec sed -i 's/+\?kmod-mhi-wwan//g' {} \; 2>/dev/null || true
-          fi
-
-          # 修复 mt_hwifi
-          [ -f "package/mtk/drivers/mt_hwifi/Makefile" ] && sed -i 's/+kmod-mt_wifi_osal//g' "package/mtk/drivers/mt_hwifi/Makefile" || true
-
-
-      - name: 配置构建
-        run: |
-          cd $SOURCE_DIR
-          echo "⚙️ 配置构建选项..."
-
-          # 验证互斥选项
-          if [ "${{ steps.set-env.outputs.enable_qmodem_next }}" = "true" ] && [ "${{ steps.set-env.outputs.enable_qmodem }}" = "true" ]; then
-            echo "❌ 错误: 不能同时启用 QModem Next 和 QModem！"
-            exit 1
-          fi
-          if [ "${{ steps.set-env.outputs.enable_original_modem }}" = "true" ] && [ "${{ steps.set-env.outputs.enable_qmodem_next }}" = "true" ]; then
-            echo "❌ 错误: 不能同时启用原版 Modem 和 QModem Next！"
-            exit 1
-          fi
-          if [ "${{ steps.set-env.outputs.enable_original_modem }}" = "true" ] && [ "${{ steps.set-env.outputs.enable_qmodem }}" = "true" ]; then
-            echo "❌ 错误: 不能同时启用原版 Modem 和 QModem！"
-            exit 1
-          fi
-
-          # 下载基础配置
-          curl -fsSL "$CONFIG_URL" -o base.config || {
-            [ -f "defconfig/mt7987_mt7992.config" ] && cp defconfig/mt7987_mt7992.config base.config
-          }
-
-          cat base.config > .config
-
-          # 应用额外配置
-          if [ -f "$GITHUB_WORKSPACE/h5000m.extra.config" ]; then
-            echo "📄 应用额外配置..."
-            cat "$GITHUB_WORKSPACE/h5000m.extra.config" >> .config
-          fi
-
-          # 根据输入动态配置包（简化：只启用顶层包，依赖由 make defconfig 自动解析）
-          disabled_pkgs=("luci-app-sms-tool-lite" "luci-app-3ginfo-lite")
-
-          # 读取环境变量到关联数组
-          declare -A pkg_enabled
-          pkg_enabled["adguardhome"]="${{ steps.set-env.outputs.enable_adguardhome }}"
-          pkg_enabled["openclash"]="${{ steps.set-env.outputs.enable_openclash }}"
-          pkg_enabled["nikki"]="${{ steps.set-env.outputs.enable_nikki }}"
-          pkg_enabled["upnp"]="${{ steps.set-env.outputs.enable_upnp }}"
-          pkg_enabled["vlmcsd"]="${{ steps.set-env.outputs.enable_vlmcsd }}"
-          pkg_enabled["mosdns"]="${{ steps.set-env.outputs.enable_mosdns }}"
-          pkg_enabled["dockerman"]="${{ steps.set-env.outputs.enable_dockerman }}"
-          pkg_enabled["mwan3"]="${{ steps.set-env.outputs.enable_mwan }}"
-          pkg_enabled["homeproxy"]="${{ steps.set-env.outputs.enable_homeproxy }}"
-          pkg_enabled["adbyby-plus"]="${{ steps.set-env.outputs.enable_adbyby_plus }}"
-
-          for pkg in "${!pkg_enabled[@]}"; do
-            if [ "${pkg_enabled[$pkg]}" = "true" ]; then
-              # nikki 需要特殊处理
-              if [ "$pkg" = "nikki" ]; then
-                echo "🔧 配置 Nikki 及其依赖..."
-                # Nikki 核心包
-                echo "CONFIG_PACKAGE_nikki=y" >> .config
-                echo "CONFIG_PACKAGE_luci-app-nikki=y" >> .config
-                echo "CONFIG_PACKAGE_luci-i18n-nikki-zh-cn=y" >> .config
-                sed -i '/^CONFIG_PACKAGE_mihomo-alpha=/d; /^# CONFIG_PACKAGE_mihomo-alpha is not set/d; /^CONFIG_PACKAGE_mihomo-meta=/d; /^# CONFIG_PACKAGE_mihomo-meta is not set/d' .config
-                echo "# CONFIG_PACKAGE_mihomo-alpha is not set" >> .config
-                echo "CONFIG_PACKAGE_mihomo-meta=y" >> .config
-                # Nikki 依赖
-                echo "CONFIG_PACKAGE_ca-bundle=y" >> .config
-                echo "CONFIG_PACKAGE_curl=y" >> .config
-                echo "CONFIG_PACKAGE_yq=y" >> .config
-                echo "CONFIG_PACKAGE_firewall4=y" >> .config
-                echo "CONFIG_PACKAGE_ip-full=y" >> .config
-                echo "CONFIG_PACKAGE_kmod-inet-diag=y" >> .config
-                echo "CONFIG_PACKAGE_kmod-nft-socket=y" >> .config
-                echo "CONFIG_PACKAGE_kmod-nft-tproxy=y" >> .config
-                echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
-              elif [ "$pkg" = "adguardhome" ]; then
-                echo "CONFIG_PACKAGE_luci-app-$pkg=y" >> .config
-                echo "CONFIG_PACKAGE_luci-i18n-$pkg-zh-cn=y" >> .config
-              elif [ "$pkg" = "adbyby-plus" ]; then
-                # adbyby-plus 及其依赖 (Plus+ 模式需要 ipset)
-                echo "CONFIG_PACKAGE_luci-app-adbyby-plus=y" >> .config
-                echo "CONFIG_PACKAGE_luci-i18n-adbyby-plus-zh-cn=y" >> .config
-                echo "CONFIG_PACKAGE_ipset=y" >> .config
-              elif [ "$pkg" = "dockerman" ]; then
-                echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> .config
-                echo "CONFIG_PACKAGE_luci-lib-docker=y" >> .config
-                echo "CONFIG_PACKAGE_docker=y" >> .config
-                echo "CONFIG_PACKAGE_dockerd=y" >> .config
-                echo "CONFIG_PACKAGE_containerd=y" >> .config
-                echo "CONFIG_PACKAGE_runc=y" >> .config
-              elif [ "$pkg" = "vlmcsd" ]; then
-                echo "CONFIG_PACKAGE_luci-app-vlmcsd=y" >> .config
-                echo "CONFIG_PACKAGE_vlmcsd=y" >> .config
-              else
-                echo "CONFIG_PACKAGE_luci-app-$pkg=y" >> .config
-              fi
-            else
-              # 特殊包禁用时添加所有相关包
-              if [ "$pkg" = "nikki" ]; then
-                disabled_pkgs+=("nikki" "luci-app-nikki" "luci-i18n-nikki-zh-cn" "luci-i18n-nikki-en")
-              elif [ "$pkg" = "adguardhome" ]; then
-                disabled_pkgs+=("luci-app-$pkg" "luci-i18n-$pkg-zh-cn")
-              elif [ "$pkg" = "adbyby-plus" ]; then
-                disabled_pkgs+=("luci-app-adbyby-plus" "luci-i18n-adbyby-plus-zh-cn")
-              elif [ "$pkg" = "dockerman" ]; then
-                disabled_pkgs+=("luci-app-dockerman" "luci-lib-docker")
-              elif [ "$pkg" = "vlmcsd" ]; then
-                disabled_pkgs+=("luci-app-vlmcsd" "vlmcsd")
-              else
-                disabled_pkgs+=("luci-app-$pkg")
-              fi
-            fi
-          done
-
-          # 原版 Modem 处理（互斥）
-          if [ "${{ steps.set-env.outputs.enable_original_modem }}" = "true" ]; then
-            echo "CONFIG_PACKAGE_luci-app-modem=y" >> .config
-            echo "CONFIG_PACKAGE_modem=y" >> .config
-            echo "CONFIG_PACKAGE_luci-i18n-modem-zh-cn=y" >> .config
-          else
-            disabled_pkgs+=("luci-app-modem" "modem" "luci-i18n-modem-zh-cn" "luci-i18n-modem-en")
-          fi
-
-          # QModem 特殊处理（互斥）
-          if [ "${{ steps.set-env.outputs.enable_qmodem_next }}" = "true" ]; then
-            echo "CONFIG_PACKAGE_luci-app-qmodem-next=y" >> .config
-          elif [ "${{ steps.set-env.outputs.enable_qmodem }}" = "true" ]; then
-            echo "CONFIG_PACKAGE_luci-app-qmodem=y" >> .config
-            # QModem 核心
-            echo "CONFIG_PACKAGE_luci-compat=y" >> .config
-            echo "CONFIG_PACKAGE_qmodem=y" >> .config
-            # QModem 驱动选择 - 使用 Vendor 驱动
-            echo "CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_vendor-qmi-wwan=y" >> .config
-            echo "# CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_generic-qmi-wwan is not set" >> .config
-            # QModem IPv6 支持
-            echo "CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_ndisc6=y" >> .config
-            echo "# CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_rdisc6 is not set" >> .config
-            echo "# CONFIG_PACKAGE_luci-app-qmodem_INCLUDE_no_ndisc_rdisc6 is not set" >> .config
-            echo "CONFIG_PACKAGE_ndisc6=y" >> .config
-            # QModem Quectel CM 选择 - 使用 Tom 定制版
-            echo "CONFIG_PACKAGE_luci-app-qmodem_USE_TOM_CUSTOMIZED_QUECTEL_CM=y" >> .config
-            echo "# CONFIG_PACKAGE_luci-app-qmodem_USING_QWRT_QUECTEL_CM_5G is not set" >> .config
-            echo "# CONFIG_PACKAGE_luci-app-qmodem_USING_NORMAL_QUECTEL_CM is not set" >> .config
-            echo "CONFIG_PACKAGE_quectel-CM-5G-M=y" >> .config
-            # QModem 依赖工具
-            echo "CONFIG_PACKAGE_sms-tool_q=y" >> .config
-            echo "CONFIG_PACKAGE_ubus-at-daemon=y" >> .config
-            echo "CONFIG_PACKAGE_tom_modem=y" >> .config
-            # QModem Vendor QMI 驱动
-            echo "CONFIG_PACKAGE_kmod-qmi_wwan_q=y" >> .config
-            echo "CONFIG_PACKAGE_kmod-qmi_wwan_f=y" >> .config
-            echo "CONFIG_PACKAGE_kmod-qmi_wwan_s=y" >> .config
-            # QModem MWAN (多WAN负载均衡)
-            echo "CONFIG_PACKAGE_mwan3=y" >> .config
-            echo "CONFIG_PACKAGE_luci-app-mwan3=y" >> .config
-            # HQOS 支持
-            echo "CONFIG_PACKAGE_mtkhqos_util=y" >> .config
-          else
-            disabled_pkgs+=("luci-app-qmodem-next" "luci-app-qmodem")
-          fi
-
-          # 统一禁用不需要的包
-          all_disabled=("luci-app-wrtbwmon" "luci-app-rclone" "rclone" "rclone-ng" "rclone-webui-react" "${disabled_pkgs[@]}")
-          for pkg in "${all_disabled[@]}"; do
-            sed -i "/^CONFIG_PACKAGE_${pkg}=/d" .config
-            echo "# CONFIG_PACKAGE_${pkg} is not set" >> .config
-          done
-
-          config_enable() {
-            local symbol="$1"
-            ./scripts/config --file .config -e "$symbol" 2>/dev/null || {
-              sed -i "/^CONFIG_${symbol}=/d; /^# CONFIG_${symbol} is not set/d" .config
-              echo "CONFIG_${symbol}=y" >> .config
-            }
-          }
-
-          config_disable() {
-            local symbol="$1"
-            ./scripts/config --file .config -d "$symbol" 2>/dev/null || {
-              sed -i "/^CONFIG_${symbol}=/d; /^# CONFIG_${symbol} is not set/d" .config
-              echo "# CONFIG_${symbol} is not set" >> .config
-            }
-          }
-
-          # 在统一禁用列表之后再次设置关键包，避免基础配置或禁用项的重复行覆盖请求。
-          if [ "${{ steps.set-env.outputs.enable_nikki }}" = "true" ]; then
-            config_disable PACKAGE_mihomo-alpha
-            config_enable PACKAGE_mihomo-meta
-            config_enable PACKAGE_nikki
-            config_enable PACKAGE_luci-app-nikki
-            config_enable PACKAGE_luci-i18n-nikki-zh-cn
-          fi
-
-          if [ "${{ steps.set-env.outputs.enable_vlmcsd }}" = "true" ]; then
-            config_enable PACKAGE_vlmcsd
-            config_enable PACKAGE_luci-app-vlmcsd
-          fi
-
-          # 自动解析依赖
-          make defconfig
-
-          if [ "${{ steps.set-env.outputs.enable_vlmcsd }}" = "true" ] && ! grep -q "^CONFIG_PACKAGE_luci-app-vlmcsd=y$" .config; then
-            echo "⚠️ VLMCSd 首次 defconfig 后未启用，重新安装 feed 包并重试..."
-            ./scripts/feeds install -f vlmcsd || true
-            ./scripts/feeds install -f luci-app-vlmcsd || true
-            config_enable PACKAGE_vlmcsd
-            config_enable PACKAGE_luci-app-vlmcsd
-            make defconfig
-            echo "🔎 VLMCSd 配置状态:"
-            grep -n "PACKAGE_.*vlmcsd" .config || true
-          fi
-
-          verify_enabled_pkg() {
-            local feature_name="$1"
-            local config_name="$2"
-            local enabled="$3"
-            if [ "$enabled" = "true" ] && ! grep -q "^CONFIG_PACKAGE_${config_name}=y$" .config; then
-              echo "❌ ${feature_name} 已请求启用，但 CONFIG_PACKAGE_${config_name}=y 未在 defconfig 后生效"
-              grep -n "PACKAGE_${config_name}" .config || true
-              exit 1
-            fi
-          }
-
-          verify_enabled_pkg "Nikki" "luci-app-nikki" "${{ steps.set-env.outputs.enable_nikki }}"
-          verify_enabled_pkg "UPnP" "luci-app-upnp" "${{ steps.set-env.outputs.enable_upnp }}"
-          verify_enabled_pkg "VLMCSd" "luci-app-vlmcsd" "${{ steps.set-env.outputs.enable_vlmcsd }}"
-          verify_enabled_pkg "MosDNS" "luci-app-mosdns" "${{ steps.set-env.outputs.enable_mosdns }}"
-          verify_enabled_pkg "DockerMan" "luci-app-dockerman" "${{ steps.set-env.outputs.enable_dockerman }}"
-          verify_enabled_pkg "QModem Next" "luci-app-qmodem-next" "${{ steps.set-env.outputs.enable_qmodem_next }}"
-          verify_enabled_pkg "MWAN" "luci-app-mwan3" "${{ steps.set-env.outputs.enable_mwan }}"
-          verify_enabled_pkg "HomeProxy" "luci-app-homeproxy" "${{ steps.set-env.outputs.enable_homeproxy }}"
-          verify_enabled_pkg "Adbyby Plus" "luci-app-adbyby-plus" "${{ steps.set-env.outputs.enable_adbyby_plus }}"
-
-          echo "✅ 配置完成"
-
-      - name: 预下载和预构建
-        run: |
-          cd $SOURCE_DIR
-          THREADS=$(nproc)
-          
-          # 下载依赖（带重试）
-          echo "📥 预下载构建依赖..."
-          find dl -size -1024c -delete 2>/dev/null || true
-          for i in 1 2 3; do
-            make download -j$THREADS && break || { find dl -size -1024c -delete 2>/dev/null || true; sleep 3; }
-          done
-          
-          # 预构建工具链
-          echo "🔧 预构建工具链..."
-          [ -d "staging_dir" ] && [ -n "$(ls -A staging_dir 2>/dev/null)" ] && echo "✅ 工具链已缓存" || make toolchain/install -j$THREADS || true
-
-      - name: 打包源码
-        run: |
-          echo "📦 打包源码和配置..."
-          tar --exclude="$SOURCE_DIR/build_dir" --exclude="$SOURCE_DIR/tmp" -czf source.tar.gz $SOURCE_DIR $GITHUB_WORKSPACE/h5000m.extra.config $GITHUB_WORKSPACE/feeds.conf.default 2>/dev/null || true
-
-      - name: 上传源码
-        uses: actions/upload-artifact@v4
-        with:
-          name: source-${{ github.run_number }}
-          path: source.tar.gz
-          retention-days: 1
-
-  build:
-    needs: prepare
-    runs-on: ubuntu-22.04
-    steps:
-      - name: 下载源码
-        uses: actions/download-artifact@v4
-        with:
-          name: source-${{ github.run_number }}
-
-      - name: 解压源码
-        run: |
-          echo "📦 解压源码..."
-          tar -xzf source.tar.gz
-          echo "✅ 源码解压完成"
-
-      - name: 安装编译依赖
-        run: |
-          echo "📦 安装编译依赖..."
-          sudo apt-get update -qq
-          sudo apt-get install -y build-essential git ccache python3 python3-pip \
-            libncurses5-dev libssl-dev libgmp3-dev libmbedtls-dev rustc cargo \
-            golang-go autoconf automake libtool patch make gcc g++ gawk gettext unzip file wget
-          
-          # 设置 ccache
-          export PATH="/usr/lib/ccache:$PATH"
-          echo "PATH=/usr/lib/ccache:$PATH" >> $GITHUB_ENV
-          echo "✅ 编译依赖安装完成"
-
-      - name: 深度清理磁盘空间
-        run: |
-          echo "🧹 执行深度清理以释放磁盘空间..."
-          
-          # 删除 Docker 资源
-          docker rmi $(docker images -q) 2>/dev/null || true
-          docker system prune -f 2>/dev/null || true
-          
-          # 删除大型组件
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /etc/mysql /etc/php \
-            /usr/local/share/boost /usr/share/swift /opt/hostedtoolcache /usr/local/.ghcup \
-            /usr/local/graalvm /imagegeneration /usr/local/share /opt /var/cache/apt/archives/* \
-            /etc/apt/sources.list.d/* 2>/dev/null || true
-          
-          # 卸载不需要的软件包
-          sudo apt-get -y purge azure-cli* docker* ghc* zulu* hhvm* llvm* firefox* \
-            google* dotnet* aspnetcore* powershell* openjdk* adoptopenjdk* mysql* php* \
-            mongodb* moby* snap* 2>/dev/null || true
-          
-          # 清理包管理器和临时文件
-          sudo apt-get autoremove --purge -y && sudo apt-get clean && sudo apt-get autoclean
-          sudo rm -rf /tmp/* /var/tmp/* /var/log/* ~/.cache/* 2>/dev/null || true
-          
-          AVAIL_GB=$(df -BG / | tail -1 | awk '{print $4}' | sed 's/G//')
-          echo "✅ 清理后可用磁盘空间: ${AVAIL_GB}GB"
-
       - name: 编译固件
+        shell: bash
+        env:
+          ENABLE_ADGUARDHOME: ${{ steps.features.outputs.enable_adguardhome }}
+          ENABLE_OPENCLASH: ${{ steps.features.outputs.enable_openclash }}
+          ENABLE_NIKKI: ${{ steps.features.outputs.enable_nikki }}
+          ENABLE_UPNP: ${{ steps.features.outputs.enable_upnp }}
+          ENABLE_VLMCSD: ${{ steps.features.outputs.enable_vlmcsd }}
+          ENABLE_MOSDNS: ${{ steps.features.outputs.enable_mosdns }}
+          ENABLE_DOCKERMAN: ${{ steps.features.outputs.enable_dockerman }}
+          ENABLE_QMODEM_NEXT: ${{ steps.features.outputs.enable_qmodem_next }}
+          ENABLE_QMODEM: ${{ steps.features.outputs.enable_qmodem }}
+          ENABLE_MWAN: ${{ steps.features.outputs.enable_mwan }}
+          ENABLE_HOMEPROXY: ${{ steps.features.outputs.enable_homeproxy }}
+          ENABLE_ADBYBY_PLUS: ${{ steps.features.outputs.enable_adbyby_plus }}
+          ENABLE_ORIGINAL_MODEM: ${{ steps.features.outputs.enable_original_modem }}
         run: |
-          cd $SOURCE_DIR
-          THREADS=$(nproc)  # 动态使用所有可用核心，提高效率
+          set -euo pipefail
           export PATH="/usr/lib/ccache:$PATH"
-          
-          echo "🔨 开始编译 (${THREADS} 线程)..."
-          echo "📊 CCache 统计 (开始):"
-          ccache -s || true
-          
-          START_TIME=$(date +%s)
-          
-          # 补充下载（如有遗漏）
-          find dl -size -1024c -delete 2>/dev/null || true
-          make download -j$THREADS || true
-          
-          # 编译
-          if make -j$THREADS IGNORE_ERRORS=n; then
-            END_TIME=$(date +%s)
-            DURATION=$((END_TIME - START_TIME))
-            echo "✅ 编译成功 (耗时: ${DURATION}s)"
-            echo "📊 CCache 统计 (结束):"
-            ccache -s || true
-          else
-            echo "⚠️ 并行编译失败，尝试单线程调试..."
-            make -j1 V=s || {
-              echo "❌ 编译失败"
-              exit 1
-            }
-          fi
+          export THREADS="$(nproc)"
+          echo "🔨 调用 scripts/local-build.sh (${THREADS} threads)..."
+          bash scripts/local-build.sh
 
-      - name: 打包产物
+      - name: 校验产物
+        id: artifacts
+        shell: bash
         run: |
-          cd $SOURCE_DIR
-          echo "📦 打包产物..."
-          mkdir -p ../artifacts
-          find bin/targets -type f \( -name "*.bin" -o -name "*.img.gz" \) -exec cp {} ../artifacts/ \;
-          cd ..
-          tar -czf artifacts.tar.gz artifacts/
-
-      - name: 验证产物
-        run: |
-          echo "🔍 验证产物..."
-          if [ -z "$(ls -A artifacts/ 2>/dev/null)" ]; then
-            echo "❌ 没有找到产物文件"
+          set -euo pipefail
+          if [ ! -d artifacts ] || [ -z "$(ls -A artifacts 2>/dev/null)" ]; then
+            echo "❌ 未找到任何产物"
             exit 1
-          else
-            echo "✅ 产物验证通过"
-            ls -lh artifacts/
           fi
+          ls -lh artifacts/
+          echo "build_time=$(date '+%Y-%m-%d %H:%M:%S %Z')" >> "$GITHUB_OUTPUT"
 
       - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: artifacts-${{ github.run_number }}
-          path: artifacts.tar.gz
-          retention-days: 30
-
-  release:
-    needs: [prepare, build]
-    runs-on: ubuntu-22.04
-    if: success()
-    steps:
-      - name: 下载产物
-        uses: actions/download-artifact@v4
-        with:
-          name: artifacts-${{ github.run_number }}
-
-      - name: 解压产物
-        run: |
-          echo "📦 解压产物..."
-          tar -xzf artifacts.tar.gz
-          echo "✅ 产物解压完成"
-
-      - name: 收集和上传产物
-        run: |
-          if [ -z "$(ls -A artifacts/ 2>/dev/null)" ]; then
-            echo "❌ 没有找到产物文件"
-            exit 1
-          fi
-
-          # 生成清单
-          cat > artifacts/MANIFEST.txt << EOF
-          ╔════════════════════════════════════════════════╗
-          ║    ImmortalWrt H5000M 固件构建信息             ║
-          ╚════════════════════════════════════════════════╝
-
-          📅 构建时间: $(date '+%Y-%m-%d %H:%M:%S')
-          🔗 运行 ID: ${{ github.run_id }}
-          🏷️  Build #: ${{ github.run_number }}
-
-          ⚙️ 启用的功能:
-          • AdGuardHome:   ${{ needs.prepare.outputs.enable_adguardhome }}
-          • OpenClash:     ${{ needs.prepare.outputs.enable_openclash }}
-          • Nikki:        ${{ needs.prepare.outputs.enable_nikki }}
-          • UPnP:          ${{ needs.prepare.outputs.enable_upnp }}
-          • VLMCSd:        ${{ needs.prepare.outputs.enable_vlmcsd }}
-          • MosDNS:        ${{ needs.prepare.outputs.enable_mosdns }}
-          • DockerMan:     ${{ needs.prepare.outputs.enable_dockerman }}
-          • QModem Next:   ${{ needs.prepare.outputs.enable_qmodem_next }}
-          • QModem:        ${{ needs.prepare.outputs.enable_qmodem }}
-          • MWAN:          ${{ needs.prepare.outputs.enable_mwan }}
-          • HomeProxy:     ${{ needs.prepare.outputs.enable_homeproxy }}
-          • Adbyby Plus:   ${{ needs.prepare.outputs.enable_adbyby_plus }}
-          • 原版 Modem:    ${{ needs.prepare.outputs.enable_original_modem }}
-
-          📦 产物文件:
-          EOF
-
-          cd artifacts
-          ls -lh | grep -v "^total" | awk '{print "  • " $9 " (" $5 ")"}' >> MANIFEST.txt
-
-          echo "✅ 产物收集完成"
-
-      - name: 上传构建结果
         uses: actions/upload-artifact@v4
         with:
           name: ImmortalWrt-H5000M-${{ github.run_number }}
@@ -840,33 +252,32 @@ jobs:
           retention-days: 30
 
       - name: 创建 GitHub Release
-        uses: softprops/action-gh-release@v1
+        if: steps.features.outputs.publish_release == 'true'
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
           name: ImmortalWrt H5000M #${{ github.run_number }}
           body: |
             🎉 **ImmortalWrt H5000M 固件已构建完成**
 
-            📅 时间: ${{ github.event.repository.updated_at }}
-            🔗 运行 ID: ${{ github.run_id }}
+            📅 构建时间: ${{ steps.artifacts.outputs.build_time }}
+            🔗 运行: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            📦 源码: `${{ env.REPO_URL }}` @ `${{ env.REPO_BRANCH }}`
 
             **⚙️ 启用的功能:**
-            - AdGuardHome: ${{ needs.prepare.outputs.enable_adguardhome }}
-            - OpenClash: ${{ needs.prepare.outputs.enable_openclash }}
-            - Nikki: ${{ needs.prepare.outputs.enable_nikki }}
-            - UPnP: ${{ needs.prepare.outputs.enable_upnp }}
-            - VLMCSd: ${{ needs.prepare.outputs.enable_vlmcsd }}
-            - MosDNS: ${{ needs.prepare.outputs.enable_mosdns }}
-            - DockerMan: ${{ needs.prepare.outputs.enable_dockerman }}
-            - QModem Next: ${{ needs.prepare.outputs.enable_qmodem_next }}
-            - QModem: ${{ needs.prepare.outputs.enable_qmodem }}
-            - MWAN: ${{ needs.prepare.outputs.enable_mwan }}
-            - HomeProxy: ${{ needs.prepare.outputs.enable_homeproxy }}
-            - Adbyby Plus: ${{ needs.prepare.outputs.enable_adbyby_plus }}
-            - 原版 Modem: ${{ needs.prepare.outputs.enable_original_modem }}
-
-            💾 下载产物: 见下方 Artifacts
-            📋 详细信息: 见 MANIFEST.txt
+            - AdGuardHome: ${{ steps.features.outputs.enable_adguardhome }}
+            - OpenClash:   ${{ steps.features.outputs.enable_openclash }}
+            - Nikki:       ${{ steps.features.outputs.enable_nikki }}
+            - UPnP:        ${{ steps.features.outputs.enable_upnp }}
+            - VLMCSd:      ${{ steps.features.outputs.enable_vlmcsd }}
+            - MosDNS:      ${{ steps.features.outputs.enable_mosdns }}
+            - DockerMan:   ${{ steps.features.outputs.enable_dockerman }}
+            - QModem Next: ${{ steps.features.outputs.enable_qmodem_next }}
+            - QModem:      ${{ steps.features.outputs.enable_qmodem }}
+            - MWAN:        ${{ steps.features.outputs.enable_mwan }}
+            - HomeProxy:   ${{ steps.features.outputs.enable_homeproxy }}
+            - Adbyby Plus: ${{ steps.features.outputs.enable_adbyby_plus }}
+            - 原版 Modem:  ${{ steps.features.outputs.enable_original_modem }}
           prerelease: true
           files: artifacts/*
         env:

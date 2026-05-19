@@ -3,6 +3,8 @@ immortalwrt/
 
 # 编译产物
 artifacts/
+artifacts.tar.gz
+source.tar.gz
 
 # 临时文件
 *.tmp
@@ -12,3 +14,8 @@ artifacts/
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 编辑器/Agent 本地元数据
+.claude/
+.vscode/
+.idea/

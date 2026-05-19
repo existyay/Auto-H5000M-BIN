@@ -1,0 +1,250 @@
+diff --git a/package/mtk/applications/mtwifi-cfg/files/mtwifi-cfg/mtwifi_cfg b/package/mtk/applications/mtwifi-cfg/files/mtwifi-cfg/mtwifi_cfg
+index 6155895..84af394 100755
+--- a/package/mtk/applications/mtwifi-cfg/files/mtwifi-cfg/mtwifi_cfg
++++ b/package/mtk/applications/mtwifi-cfg/files/mtwifi-cfg/mtwifi_cfg
+@@ -157,6 +157,84 @@ function vif_is_apcli(vif, dev)
+     end
+ end
+ 
++function cfg_is_true(val)
++    return val == true or val == 1 or val == "1" or val == "true" or val == "yes" or val == "on"
++end
++
++function vif_is_enabled(v)
++    return v and v.config and not cfg_is_true(v.config.disabled)
++end
++
++function sorted_vif_indices(cfg)
++    local indices = {}
++
++    if not cfg or not cfg.interfaces then
++        return indices
++    end
++
++    for k,_ in pairs(cfg.interfaces) do
++        local idx = tonumber(k)
++        if idx ~= nil then
++            indices[#indices + 1] = idx
++        end
++    end
++
++    table.sort(indices)
++    return indices
++end
++
++function mac_add_offset(mac, offset)
++    if type(mac) ~= "string" then
++        return ""
++    end
++
++    local bytes = {}
++    for octet in string.gmatch(string.lower(mac), "[%da-f][%da-f]") do
++        bytes[#bytes + 1] = tonumber(octet, 16)
++    end
++
++    if #bytes ~= 6 then
++        return ""
++    end
++
++    local carry = tonumber(offset) or 0
++    for i = 6, 1, -1 do
++        local sum = bytes[i] + (carry % 256)
++        bytes[i] = sum % 256
++        carry = math.floor(carry / 256) + math.floor(sum / 256)
++    end
++
++    -- Keep a unicast, locally administered address for APCLI.
++    local first = bytes[1]
++    if (first % 2) == 1 then
++        first = first - 1
++    end
++    if (math.floor(first / 2) % 2) == 0 then
++        first = first + 2
++    end
++    bytes[1] = first
++
++    return string.format(
++        "%02x:%02x:%02x:%02x:%02x:%02x",
++        bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6]
++    )
++end
++
++function resolve_apcli_macaddr(v, dats)
++    local explicit = (v and v.config and v.config.macaddr) or ""
++    if explicit ~= "" then
++        return string.lower(explicit)
++    end
++
++    local base = dats.MacAddress or dats.MacAddress_Default or ""
++    local derived = mac_add_offset(base, 2)
++    if derived ~= "" then
++        return derived
++    end
++
++    return base
++end
++
+ function is_ax_mode(cfg)
+     if not cfg.config.htmode then
+         return false
+@@ -182,11 +260,12 @@ function vif_count(cfg)
+     local ap_num = 0
+     local apcli_num = 0
+ 
+-    for k,v in pairs(cfg.interfaces) do
++    for _,idx in ipairs(sorted_vif_indices(cfg)) do
++        local v = cfg.interfaces[string.format("%d", idx)]
+         vif_num = vif_num + 1
+-        if v.config.mode == "ap" then
++        if v.config.mode == "ap" and vif_is_enabled(v) then
+             ap_num = ap_num + 1
+-        elseif v.config.mode == "sta" then
++        elseif v.config.mode == "sta" and vif_is_enabled(v) then
+             apcli_num = apcli_num + 1
+         end
+     end
+@@ -197,10 +276,9 @@ end
+ function mtwifi_cfg_foreach_vif(cfg, mode, func)
+     if cfg == nil or func == nil then return end
+ 
+-    local vif_num,_,_ = vif_count(cfg)
+-    for idx=0,vif_num-1 do
++    for _,idx in ipairs(sorted_vif_indices(cfg)) do
+         local v = cfg.interfaces[string.format("%d", idx)]
+-        if v.config.mode and v.config.mode == mode then
++        if v and v.config and v.config.mode == mode then
+             func(v)
+         end
+     end
+@@ -248,7 +326,7 @@ function mtwifi_up(devname, cfg, restore_vifs, is_dbdc)
+     end
+ 
+     local start_vif = function(v)
+-        if (not v.config.disabled) and v.mtwifi_ifname then
++        if vif_is_enabled(v) and v.mtwifi_ifname then
+             local vif = v.mtwifi_ifname
+             nixio.syslog("info", "mtwifi-cfg: up vif: "..vif)
+             ifup(vif)
+@@ -310,7 +388,7 @@ end
+ 
+ function mtwifi_cfg_iwpriv_hook(cfg)
+     local ap_hook = function(v)
+-        if (not v.config.disabled) and v.mtwifi_ifname then
++        if vif_is_enabled(v) and v.mtwifi_ifname then
+             local vif = v.mtwifi_ifname
+             for k, j in pairs(defs.iwpriv_ap_cfgs) do
+                 __exec_iwpriv_cmd(vif, j[1], v.config[k] or j[2])
+@@ -319,7 +397,7 @@ function mtwifi_cfg_iwpriv_hook(cfg)
+     end
+ 
+     local apcli_hook = function(v)
+-        if (not v.config.disabled) and v.mtwifi_ifname then
++        if vif_is_enabled(v) and v.mtwifi_ifname then
+             local vif = v.mtwifi_ifname
+             __apcli_auto_connect(vif)
+         end
+@@ -397,7 +475,11 @@ function mtwifi_cfg_setup(argv)
+         nixio.syslog("err", "mtwifi-cfg: only support one apcli vif!")
+     end
+ 
+-        dats.BssidNum = 4
++    local effective_bssid_num = bssid_num
++    if effective_bssid_num < 1 then
++        effective_bssid_num = 1
++    end
++    dats.BssidNum = effective_bssid_num
+     
+ 
+     -- setup wireless mode
+@@ -476,17 +558,17 @@ function mtwifi_cfg_setup(argv)
+     dats.ApCliPMFMFPR = 0
+     dats.ApCliPMFSHA256 = 0
+ 
+-    for _,v in pairs(cfg.interfaces) do
+-        if v.config.mode == "sta" then
+-            if not v.config.disabled then
+-                dats.ApCliEnable = 1
+-            end
++    for _,idx in ipairs(sorted_vif_indices(cfg)) do
++        local v = cfg.interfaces[string.format("%d", idx)]
++        if v.config.mode == "sta" and vif_is_enabled(v) then
++            local enc = defs.enc2dat[v.config.encryption or "none"] or defs.enc2dat["none"]
++            dats.ApCliEnable = 1
+             dats.ApCliSsid = v.config.ssid or ""
+             dats.ApCliBssid = v.config.bssid or ""
+             dats.MACRepeaterEn = (v.config.bssid and v.config.bssid ~= "") and 1 or 0
+-            dats.ApcliMacAddress = v.config.macaddr or (dats.MacAddress_Default or "")
+-            dats.ApCliAuthMode = defs.enc2dat[v.config.encryption][1]
+-            dats.ApCliEncrypType = defs.enc2dat[v.config.encryption][2]
++            dats.ApcliMacAddress = resolve_apcli_macaddr(v, dats)
++            dats.ApCliAuthMode = enc[1]
++            dats.ApCliEncrypType = enc[2]
+             dats.ApCliWPAPSK = v.config.key or ""
+ 
+             if dats.ApCliAuthMode == "OWE" or dats.ApCliAuthMode == "WPA3PSK" then
+@@ -590,15 +672,16 @@ function mtwifi_cfg_setup(argv)
+ 
+     -- setup vif cfgs
+     local apidx = 1
+-    for idx = 0,vif_num-1 do
++    for _,idx in ipairs(sorted_vif_indices(cfg)) do
+         v = cfg.interfaces[string.format("%d", idx)]
+-        if v.config.mode == "ap" then
++        if v.config.mode == "ap" and vif_is_enabled(v) then
++            local mlo_enabled = cfg_is_true(v.config.mlo)
+             set_idx_dat(dats, apidx, "SSID", v.config.ssid)
+             set_idx_dat(dats, apidx, "WPAPSK", v.config.key or "")
+             set_dat(dats, apidx, "NoForwarding", 0)
+             set_dat(dats, apidx, "HideSSID", v.config.hidden)
+-            set_dat(dats, apidx, "MldGroup", v.config.mlo)
+-            if not v.config.mlo then
++            set_dat(dats, apidx, "MldGroup", mlo_enabled)
++            if not mlo_enabled then
+                 set_dat(dats, apidx, "MldGroup", "0")
+                 if idx == 0 then
+                     dats.MacAddress = v.config.macaddr or (dats.MacAddress_Default or "")
+@@ -659,9 +742,10 @@ function mtwifi_cfg_setup(argv)
+                 set_idx_dat(dats, apidx-1, "AccessControlList", maclist)
+             end
+ 
+-            local authmode = defs.enc2dat[v.config.encryption][1]
++            local enc = defs.enc2dat[v.config.encryption or "none"] or defs.enc2dat["none"]
++            local authmode = enc[1]
+             set_dat(dats, apidx, "AuthMode", authmode)
+-            set_dat(dats, apidx, "EncrypType", defs.enc2dat[v.config.encryption][2])
++            set_dat(dats, apidx, "EncrypType", enc[2])
+ 
+             if authmode == "OWE" or authmode == "WPA3PSK" then
+                 set_dat(dats, apidx, "PMFMFPC", 1)
+diff --git a/package/mtk/applications/mtwifi-cfg/files/netifd/mtwifi.sh b/package/mtk/applications/mtwifi-cfg/files/netifd/mtwifi.sh
+index 5cc25d6..d94e5ff 100755
+--- a/package/mtk/applications/mtwifi-cfg/files/netifd/mtwifi.sh
++++ b/package/mtk/applications/mtwifi-cfg/files/netifd/mtwifi.sh
+@@ -71,6 +71,13 @@ mtwifi_vif_sta_config() {
+ 
+ mtwifi_vif_ap_set_data() {
+ 	local ifname=""
++	local disabled=""
++
++	json_select config
++	json_get_var disabled disabled
++	json_select ..
++
++	[ "$disabled" = "1" ] && return
+ 
+ 	if [ ! $AP_IDX -gt $MTWIFI_MAX_AP_IDX ]; then
+ 		ifname="${MTWIFI_AP_IF_PREFIX}${AP_IDX}"
+@@ -82,6 +89,13 @@ mtwifi_vif_ap_set_data() {
+ 
+ mtwifi_vif_sta_set_data() {
+ 	local ifname=""
++	local disabled=""
++
++	json_select config
++	json_get_var disabled disabled
++	json_select ..
++
++	[ "$disabled" = "1" ] && return
+ 
+ 	if [ ! $APCLI_IDX -gt $MTWIFI_MAX_APCLI_IDX ]; then
+ 		ifname="${MTWIFI_APCLI_IF_PREFIX}${APCLI_IDX}"
