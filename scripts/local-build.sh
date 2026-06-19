@@ -589,7 +589,9 @@ EOF
 
   is_true "$ENABLE_ADGUARDHOME" && { echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> .config; echo "CONFIG_PACKAGE_luci-i18n-adguardhome-zh-cn=y" >> .config; } || disabled_pkgs+=("luci-app-adguardhome" "luci-i18n-adguardhome-zh-cn")
   is_true "$ENABLE_OPENCLASH" && echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config || disabled_pkgs+=("luci-app-openclash")
-  is_true "$ENABLE_UPNP" && echo "CONFIG_PACKAGE_luci-app-upnp=y" >> .config || disabled_pkgs+=("luci-app-upnp")
+  if ! is_true "$ENABLE_UPNP"; then
+    disabled_pkgs+=("luci-app-upnp" "miniupnpd-iptables" "miniupnpd-nftables")
+  fi
   is_true "$ENABLE_VLMCSD" && { echo "CONFIG_PACKAGE_luci-app-vlmcsd=y" >> .config; echo "CONFIG_PACKAGE_vlmcsd=y" >> .config; } || disabled_pkgs+=("luci-app-vlmcsd" "vlmcsd")
   if is_true "$ENABLE_MOSDNS"; then
     cat >> .config <<'EOF'
@@ -685,6 +687,11 @@ EOF
     config_enable PACKAGE_nikki
     config_enable PACKAGE_luci-app-nikki
     config_enable PACKAGE_luci-i18n-nikki-zh-cn
+  fi
+
+  if is_true "$ENABLE_UPNP"; then
+    config_enable PACKAGE_miniupnpd-nftables
+    config_enable PACKAGE_luci-app-upnp
   fi
 
   if is_true "$ENABLE_MOSDNS"; then
