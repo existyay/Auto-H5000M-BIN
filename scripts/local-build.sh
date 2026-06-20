@@ -285,10 +285,6 @@ patch_v2dat_go124() {
   if [ -n "$patch_files" ]; then
     printf '%s\n' "$patch_files" | xargs sed -i \
       -e 's/go 1\.25\.0/go 1.24.0/g' \
-      -e 's/^+go 1\.24$/+go 1.24.0\n+\n+toolchain go1.24.13/g' \
-      -e 's/^+go 1\.24\.0$/+go 1.24.0\n+\n+toolchain go1.24.13/g' \
-      -e 's/^@@ -1,8 +1,9 @@$/@@ -1,8 +1,11 @@/g' \
-      -e 's/^@@ -12,4 +13,5 @@ require ($/@@ -12,4 +15,5 @@ require (/g' \
       -e 's|golang.org/x/sys v0\.42\.0 // indirect|golang.org/x/sys v0.37.0 // indirect|g' \
       -e 's|golang.org/x/sys v0\.42\.0 h1:omrd2nAlyT5ESRdCLYdm3+fMfNFE/+Rf4bDIQImRJeo=|golang.org/x/sys v0.37.0 h1:fdNQudmxPjkdUTPnLn5mdQv7Zwvbvpaxqs831goi9kQ=|g' \
       -e 's|golang.org/x/sys v0\.42\.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=|golang.org/x/sys v0.37.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=|g'
